@@ -1,0 +1,11 @@
+ucimlrepo
+pandas
+numpy
+scikit-learn
+xgboost
+shap
+matplotlib
+jupyter
+fastapi
+uvicorn
+joblib
