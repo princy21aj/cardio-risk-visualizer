@@ -1,7 +1,8 @@
-import { Component, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Html } from "@react-three/drei";
+import { Component, useEffect, useRef, useState } from "react";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import Heart3D from "./heart3D";
 
 const API = "http://127.0.0.1:8000";
 const TOTAL_FEATURES = 56;
@@ -15,153 +16,6 @@ const FIELDS = [
   ["Region RWMA", "num"], ["Typical Chest Pain", "yn"], ["St Depression", "yn"],
   ["Tinversion", "yn"], ["DM", "yn"], ["HTN", "yn"],
 ];
-
-/* ---------- Heart geometry (schematic, low-poly) ---------- */
-function heartPoint(x, y, z) {
-  let px = x * 1.15, py = y * 1.35, pz = z * 0.95;
-  if (y < 0) { const k = 1 + 0.55 * y; px *= k; pz *= k; px += 0.28 * y * y; }
-  if (z < 0) pz *= 0.8;
-  if (y > 0) py -= 0.22 * y * Math.exp(-(x * x) / 0.12);
-  return [px, py, pz];
-}
-const sph = (u, v) => [Math.sin(v) * Math.cos(u), Math.cos(v), Math.sin(v) * Math.sin(u)];
-const P = (u, v) => heartPoint(...sph(u, v));
-
-function surfacePoint(u, v, offset) {
-  const e = 0.001, p = P(u, v);
-  const a = P(u + e, v).map((x, i) => x - P(u - e, v)[i]);
-  const b = P(u, v + e).map((x, i) => x - P(u, v - e)[i]);
-  let n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const len = Math.hypot(...n) || 1;
-  n = n.map((x) => x / len);
-  const s = n[0] * p[0] + n[1] * p[1] + n[2] * p[2] < 0 ? -1 : 1;
-  return new THREE.Vector3(p[0] + s * n[0] * offset, p[1] + s * n[1] * offset, p[2] + s * n[2] * offset);
-}
-
-const VESSEL_UV = {
-  LAD: [[1.45, 0.8], [1.3, 1.2], [1.25, 1.8], [1.35, 2.4], [1.45, 2.9]],
-  LCX: [[1.35, 0.85], [0.9, 1.0], [0.5, 1.15], [0.1, 1.3], [-0.4, 1.4]],
-  RCA: [[1.8, 0.85], [2.3, 1.1], [2.8, 1.4], [3.3, 1.7], [3.7, 2.0]],
-};
-const LABEL_AT = { LAD: 0.45, LCX: 0.3, RCA: 0.35 };
-
-function vesselPoints(name) {
-  const c = VESSEL_UV[name], N = 40, out = [];
-  for (let i = 0; i <= N; i++) {
-    const f = (i / N) * (c.length - 1);
-    const k = Math.min(Math.floor(f), c.length - 2);
-    const t = f - k;
-    out.push(surfacePoint(c[k][0] + (c[k + 1][0] - c[k][0]) * t,
-                          c[k][1] + (c[k + 1][1] - c[k][1]) * t, 0.015));
-  }
-  return out;
-}
-
-const AORTA = [[0.15, 0.9, 0.05], [0.2, 1.6, 0.0], [0.1, 2.1, -0.05], [-0.3, 2.4, -0.1], [-0.75, 2.3, -0.2]];
-const PULMONARY = [[-0.3, 0.9, 0.4], [-0.4, 1.5, 0.45], [-0.75, 1.85, 0.4]];
-const VENA_CAVA = [[-0.7, 0.8, 0.0], [-0.72, 1.6, -0.05], [-0.7, 2.1, -0.05]];
-
-function Tube({ points, radius, color }) {
-  const curve = useMemo(
-    () => new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p))),
-    [points]
-  );
-  return (
-    <mesh>
-      <tubeGeometry args={[curve, 40, radius, 12, false]} />
-      <meshStandardMaterial color={color} roughness={0.5} />
-    </mesh>
-  );
-}
-
-function HeartBody() {
-  const geo = useMemo(() => {
-    const g = new THREE.SphereGeometry(1, 48, 48);
-    const pos = g.attributes.position;
-    const colors = new Float32Array(pos.count * 3);
-    const top = new THREE.Color("#e6c9bb");
-    const mid = new THREE.Color("#d2a898");
-    const low = new THREE.Color("#b88b7c");
-    const c = new THREE.Color();
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      const [px, py, pz] = heartPoint(x, y, z);
-      pos.setXYZ(i, px, py, pz);
-      if (y > 0.45) c.copy(mid).lerp(top, Math.min(1, (y - 0.45) / 0.4));
-      else c.copy(low).lerp(mid, Math.max(0, (y + 1) / 1.45));
-      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
-    }
-    g.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    return g;
-  }, []);
-  return (
-    <mesh geometry={geo}>
-      <meshStandardMaterial vertexColors roughness={0.55} metalness={0.05} />
-    </mesh>
-  );
-}
-
-function Vessel({ name, prob, selected, onSelect }) {
-  const mat = useRef();
-  const { curve, label } = useMemo(() => {
-    const pts = vesselPoints(name);
-    return {
-      curve: new THREE.CatmullRomCurve3(pts),
-      label: pts[Math.floor(pts.length * LABEL_AT[name])],
-    };
-  }, [name]);
-  const color = heat(prob);
-
-  useFrame(({ clock }) => {
-    if (!mat.current) return;
-    const base = selected ? 0.6 : 0.15;
-    mat.current.emissiveIntensity =
-      prob > 0.7 ? base + 0.35 * (0.5 + 0.5 * Math.sin(clock.getElapsedTime() * 4)) : base;
-  });
-
-  return (
-    <group>
-      <mesh
-        onClick={(e) => { e.stopPropagation(); onSelect(name); }}
-        onPointerOver={() => (document.body.style.cursor = "pointer")}
-        onPointerOut={() => (document.body.style.cursor = "auto")}
-      >
-        <tubeGeometry args={[curve, 80, selected ? 0.09 : 0.06, 10, false]} />
-        <meshStandardMaterial ref={mat} color={color} emissive={color} roughness={0.4} />
-      </mesh>
-      <Html position={label} center style={{ pointerEvents: "none" }}>
-        <div style={{ transform: "translate(22px,-16px)",
-                      background: selected ? "#111" : "rgba(0,0,0,0.65)",
-                      border: selected ? "1px solid #fff" : "none", color: "#fff",
-                      fontSize: selected ? 13 : 11, fontWeight: selected ? 700 : 400,
-                      padding: "1px 6px", borderRadius: 8, whiteSpace: "nowrap" }}>
-          {name} {pct(prob)}
-        </div>
-      </Html>
-    </group>
-  );
-}
-
-function HeartScene({ r, sel, setSel, beat }) {
-  const ref = useRef();
-  useFrame(({ clock }) => {
-    const b = beat ? Math.pow(Math.max(0, Math.sin(clock.getElapsedTime() * 4)), 6) : 0;
-    if (ref.current) ref.current.scale.setScalar(1 + 0.02 * b);
-  });
-  return (
-    <group ref={ref} position={[0, -0.2, 0]}>
-      <HeartBody />
-      <Tube points={AORTA} radius={0.14} color="#c27a74" />
-      <Tube points={PULMONARY} radius={0.17} color="#5b6fb0" />
-      <Tube points={VENA_CAVA} radius={0.14} color="#5566a8" />
-      {r && VESSELS.map((v) => (
-        <Vessel key={v} name={v} prob={r[v].probability}
-                selected={sel === v} onSelect={setSel} />
-      ))}
-    </group>
-  );
-}
 
 /* ---------- Patient form ---------- */
 function PatientForm({ onSubmit }) {
@@ -248,6 +102,7 @@ function Performance() {
         <li>Vessel-level mapping on a schematic heart, not a patient scan.</li>
         <li>Explanations show how the model reasoned, not medical causes.</li>
         <li>Example patients come from the training data, so their risks look optimistic.</li>
+        <li>CAD is a separate model, so it can differ from the vessel results.</li>
         <li>LAD, LCX, RCA and Cath are excluded from inputs to prevent target leakage.</li>
       </ul>
     </details>
@@ -329,7 +184,16 @@ function AppInner() {
             <ambientLight intensity={0.55} />
             <directionalLight position={[3, 4, 5]} intensity={1.1} />
             <directionalLight position={[-4, -2, -3]} intensity={0.45} />
-            <HeartScene r={r} sel={sel} setSel={setSel} beat={beat} />
+            <Heart3D
+              risks={{
+                LAD: r?.LAD?.probability ?? 0,
+                LCX: r?.LCX?.probability ?? 0,
+                RCA: r?.RCA?.probability ?? 0,
+              }}
+              selected={sel}
+              onSelect={setSel}
+              heartbeat={beat}
+            />
             <OrbitControls ref={ctrl} enablePan={false} target={[0, 0.4, 0]}
                            minDistance={4} maxDistance={12}
                            autoRotate={rotate} autoRotateSpeed={1.5} />
@@ -408,7 +272,8 @@ function AppInner() {
           </details>
 
           {r && (<>
-            <h3 style={{ position: "sticky", top: 0, background: "#fff", margin: 0, padding: "8px 0", zIndex: 2 }}>
+            <h3 style={{ position: "sticky", top: 0, background: "#fff", margin: 0,
+                         padding: "8px 0", zIndex: 2 }}>
               Overall CAD: {pct(r.CAD.probability)}
             </h3>
 
@@ -441,13 +306,16 @@ function AppInner() {
             {(() => {
               const mx = Math.max(...r[sel].contributions.map((c) => Math.abs(c.shap)));
               return r[sel].contributions.map((c) => (
-                <div key={c.feature} style={{ display: "flex", alignItems: "center", fontSize: 12, margin: "3px 0" }}>
+                <div key={c.feature}
+                     style={{ display: "flex", alignItems: "center", fontSize: 12, margin: "3px 0" }}>
                   <div style={{ width: 140 }}>{c.label}</div>
                   <div style={{ flex: 1, height: 8, background: "#eee", borderRadius: 4 }}>
-                    <div style={{ height: 8, borderRadius: 4, width: `${(Math.abs(c.shap) / mx) * 100}%`,
+                    <div style={{ height: 8, borderRadius: 4,
+                                  width: `${(Math.abs(c.shap) / mx) * 100}%`,
                                   background: c.shap > 0 ? "#d32f2f" : "#1976d2" }} />
                   </div>
-                  <div style={{ width: 54, textAlign: "right", color: c.shap > 0 ? "#b00020" : "#0b5cad" }}>
+                  <div style={{ width: 54, textAlign: "right",
+                                color: c.shap > 0 ? "#b00020" : "#0b5cad" }}>
                     {c.shap > 0 ? "+" : ""}{c.shap.toFixed(3)}
                   </div>
                 </div>
