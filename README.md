@@ -148,19 +148,20 @@ Citation: Alizadehsani, R., Roshanzamir, M., & Sani, Z. (2013). *extention of Z-
 ## Demo
 Demo video: link to be added before submission.
 
-<!--
+
 ## Report
 [Technical report (PDF)](docs/report.pdf)
-(Remove this comment markers once docs/report.pdf is added.)
--->
+
 
 ## Team ZYRA
 
 | Name | Role |
+|---|---|
 | Amal Princy J | Machine learning, backend and 3D visualisation |
 | Govarthini K | Research, testing and documentation |
 
 Built by Team ZYRA.
+
 
 ## License
 Code is released under the MIT License (see `LICENSE`). Copyright (c) 2026 Team ZYRA. The dataset keeps its own CC BY 4.0 license.
