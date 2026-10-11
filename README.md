@@ -1,5 +1,5 @@
 # Cardiac Risk Visualizer
-### by Team ZYRA: Amal Princy J and Govarthini K
+### by Team ZYRA: Amal Princy J , Govarthini K and Hemalatha G
 
 
 **Explainable coronary artery disease risk, shown on an interactive 3D heart.**
