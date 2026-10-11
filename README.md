@@ -159,6 +159,7 @@ Demo video: link to be added before submission.
 |---|---|
 | Amal Princy J | Machine learning, backend and 3D visualisation |
 | Govarthini K | Research, testing and documentation |
+| Hemalartha G | Demo video voice-over and narration |
 
 Built by Team ZYRA.
 
